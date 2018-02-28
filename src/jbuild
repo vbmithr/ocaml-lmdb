@@ -1,0 +1,8 @@
+(jbuild_version 1)
+
+(library
+ ((name            lmdb)
+  (public_name     lmdb)
+  (libraries       (rresult))
+  (c_names         (mdb midl lmdb_stubs))
+  (c_library_flags (-lpthread))))

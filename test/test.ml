@@ -38,6 +38,11 @@ let env () =
   let _maxreaders = get_maxreaders env in
   let _maxkeysize = get_maxkeysize env in
   sync env >>= fun () ->
+  Ok ()
+
+let txn () =
+  cleanup () ;
+  opendir ~maxdbs:1 "/tmp" 0o644 >>= fun env ->
   create_ro_txn env >>= fun rotxn ->
   reset_ro_txn rotxn ;
   create_rw_txn env >>= fun rwtxn ->
@@ -69,6 +74,7 @@ let cursors () =
   cursor_put_string cursor "test2" "test2" >>= fun () ->
   sync env >>= fun () ->
   cursor_first cursor >>= fun () ->
+  cursor_at cursor "" >>= fun () ->
   assert_error KeyNotFound (cursor_prev cursor) ;
   cursor_last cursor >>= fun () ->
   assert_error KeyNotFound (cursor_next cursor) ;
@@ -158,6 +164,7 @@ let basic = [
   "version", `Quick, version ;
   "string_of_error", `Quick, test_string_of_error ;
   "env", `Quick, fail_on_error env ;
+  "txn", `Quick, fail_on_error txn ;
   "cursors", `Quick, fail_on_error cursors ;
   "cursors_del", `Quick, fail_on_error cursors_del ;
   "cursors_del4", `Quick, fail_on_error cursors_del4 ;

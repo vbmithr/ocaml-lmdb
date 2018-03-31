@@ -391,23 +391,23 @@ let reset_ro_txn (Txn_ro rawtxn) =
 let renew_ro_txn (Txn_ro rawtxn) =
   return (renew_ro_txn rawtxn) ()
 
+type db = nativeint
+
 external opendb :
-  rawtxn -> string -> int -> (int, int) result = "stub_mdb_dbi_open"
+  rawtxn -> string option -> int -> (db, int) result = "stub_mdb_dbi_open"
 
-type db = int
-
-let opendb ?(flags=[]) ?(name="") txn =
+let opendb ?(flags=[]) ?name txn =
   R.reword_error error_of_int
     (opendb (rawtxn_of_txn txn) name (int_of_flags_open flags))
 
 external db_stat :
-  rawtxn -> int -> (stat, int) result = "stub_mdb_stat"
+  rawtxn -> db -> (stat, int) result = "stub_mdb_stat"
 
 let db_stat txn dbi =
   R.reword_error error_of_int (db_stat (rawtxn_of_txn txn) dbi)
 
 external db_flags :
-  rawtxn -> int -> (int, int) result = "stub_mdb_dbi_flags"
+  rawtxn -> db -> (int, int) result = "stub_mdb_dbi_flags"
 
 let db_flags txn dbi =
   match db_flags (rawtxn_of_txn txn) dbi with
@@ -415,7 +415,7 @@ let db_flags txn dbi =
   | Ok v -> Ok (flags_open_of_int v)
 
 external db_drop :
-  rawtxn -> int -> bool -> int = "stub_mdb_drop" [@@noalloc]
+  rawtxn -> db -> bool -> int = "stub_mdb_drop" [@@noalloc]
 
 let db_drop txn dbi =
   return (db_drop (rawtxn_of_txn txn) dbi false) ()
@@ -449,10 +449,9 @@ let with_rw_db ?sync ?metasync ?parent ?flags ?name t ~f =
     Error err
 
 type buffer = (char, Bigarray.int8_unsigned_elt, Bigarray.c_layout) Bigarray.Array1.t
-let create_buffer = Bigarray.(Array1.create Char C_layout)
 
 external get :
-  rawtxn -> int -> string -> (buffer, int) result = "stub_mdb_get"
+  rawtxn -> db -> string -> (buffer, int) result = "stub_mdb_get"
 
 let get txn dbi k =
   R.reword_error error_of_int (get (rawtxn_of_txn txn) dbi k)
@@ -464,9 +463,9 @@ let mem txn dbi k =
   | Error err -> Error err
 
 external put :
-  rawtxn -> int -> string -> buffer -> int -> int = "stub_mdb_put" [@@noalloc]
+  rawtxn -> db -> string -> buffer -> int -> int = "stub_mdb_put" [@@noalloc]
 external put_string :
-  rawtxn -> int -> string -> string -> int -> int = "stub_mdb_put_string" [@@noalloc]
+  rawtxn -> db -> string -> string -> int -> int = "stub_mdb_put_string" [@@noalloc]
 
 let put ?(flags=[]) txn dbi k v =
   let flags = int_of_flags_put flags in
@@ -477,14 +476,14 @@ let put_string ?(flags=[]) txn dbi k v =
   return (put_string (rawtxn_of_txn txn) dbi k v flags) ()
 
 external del :
-  rawtxn -> int -> string -> buffer -> int = "stub_mdb_del" [@@noalloc]
+  rawtxn -> db -> string -> buffer option -> int = "stub_mdb_del" [@@noalloc]
 external del_string :
-  rawtxn -> int -> string -> string -> int = "stub_mdb_del_string" [@@noalloc]
+  rawtxn -> db -> string -> string option -> int = "stub_mdb_del_string" [@@noalloc]
 
-let del ?(data=create_buffer 0) txn dbi k =
+let del ?data txn dbi k =
   return (del (rawtxn_of_txn txn) dbi k data) ()
 
-let del_string ?(data="") txn dbi k =
+let del_string ?data txn dbi k =
   return (del_string (rawtxn_of_txn txn) dbi k data) ()
 
 type rawcursor
@@ -500,7 +499,7 @@ let cursor_ro rawcursor = Cursor_ro rawcursor
 let cursor_rw rawcursor = Cursor_rw rawcursor
 
 external opencursor :
-  rawtxn -> int -> (rawcursor, int) result = "stub_mdb_cursor_open"
+  rawtxn -> db -> (rawcursor, int) result = "stub_mdb_cursor_open"
 
 let opencursor :
   type a. a txn -> db -> (a cursor, error) result = fun txn dbi ->
@@ -559,10 +558,10 @@ type cursor_op =
   | Prev_multiple
 
 external cursor_get_op :
-  rawcursor -> string -> buffer -> cursor_op ->
+  rawcursor -> string option -> buffer option -> cursor_op ->
   (buffer * buffer, int) result = "stub_mdb_cursor_get"
 
-let cursor_get_op ?(key="") ?(data=create_buffer 0) cursor op =
+let cursor_get_op ?key ?data cursor op =
   R.reword_error error_of_int
     (cursor_get_op (rawcursor_of_cursor cursor) key data op)
 
@@ -574,8 +573,9 @@ let cursor_next cursor =
   R.map ignore (cursor_get_op cursor Next)
 let cursor_prev cursor =
   R.map ignore (cursor_get_op cursor Prev)
-let cursor_at cursor key =
-  R.map ignore (cursor_get_op ~key cursor Set_range)
+let cursor_at cursor = function
+  | "" -> cursor_first cursor
+  | key -> R.map ignore (cursor_get_op ~key cursor Set_range)
 
 let cursor_get cursor =
   cursor_get_op cursor Get_current

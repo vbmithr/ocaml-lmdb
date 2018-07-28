@@ -155,6 +155,122 @@ let consistency () =
   end >>= fun () ->
   Ok ()
 
+let mtest () =
+  let count = Random.int 384 + 64 in
+  let values = Array.init count (fun _ -> Random.int 1024) in
+  (try Unix.mkdir "testdb" 0o755 with _ -> ()) ;
+  Lmdb.opendir ~maxreaders:1 ~mapsize:10485760L
+      ~flags:[FixedMap] "testdb" 0o644 >>= fun t ->
+  Lmdb.create_rw_txn t >>= fun txn ->
+  Lmdb.opendb txn >>= fun db ->
+  let nb_duplicates =
+    Array.fold_left begin fun a i ->
+      let v = Printf.sprintf "%03x %d foo bar" i i in
+      let k = String.sub v 0 4 in
+      match Lmdb.put_string ~flags:[NoOverwrite] txn db k v with
+      | Error _ -> succ a
+      | Ok () -> a
+    end 0 values in
+  Printf.printf "%d duplicates skipped\n" nb_duplicates ;
+  Lmdb.commit_txn txn >>= fun () ->
+  let _stat = Lmdb.stat t in
+  Lmdb.create_ro_txn t >>= fun txn ->
+  Lmdb.opencursor txn db >>= fun cursor ->
+  Lmdb.cursor_first cursor >>= fun () ->
+  Lmdb.cursor_iter cursor ~f:begin fun (k, v) ->
+    Printf.printf "%s %s\n"
+      (Bigstring.to_string k) (Bigstring.to_string v) ;
+    Ok ()
+  end >>= fun () ->
+  Lmdb.cursor_close cursor ;
+  Lmdb.abort_txn txn ;
+  let rec rand_del a i =
+    if i < 0 then Ok a
+    else
+      Lmdb.create_rw_txn t >>= fun txn ->
+      let key = Printf.sprintf "%03x " values.(i) in
+      match del txn db key with
+      | Error KeyNotFound ->
+        Lmdb.abort_txn txn ;
+        Ok a
+      | _ ->
+        Lmdb.commit_txn txn >>= fun () ->
+        Printf.printf "Deleted key %s\n" key ;
+        rand_del (succ a) (i - Random.int 5) in
+  rand_del 0 (pred count) >>= fun nb_deleted ->
+  Printf.printf "Deleted %d values\n" nb_deleted ;
+  let _stat = Lmdb.stat t in
+  Lmdb.create_ro_txn t >>= fun txn ->
+  Lmdb.opencursor txn db >>= fun cursor ->
+  Lmdb.cursor_first cursor >>= fun () ->
+  Lmdb.cursor_iter cursor ~f:begin fun (k, v) ->
+    Printf.printf "%s %s\n"
+      (Bigstring.to_string k) (Bigstring.to_string v) ;
+    Ok ()
+  end >>= fun () ->
+  Lmdb.cursor_last cursor >>= fun () ->
+  Lmdb.cursor_rev_iter cursor ~f:begin fun (k, v) ->
+    Printf.printf "%s %s\n"
+      (Bigstring.to_string k) (Bigstring.to_string v) ;
+    Ok ()
+  end >>= fun () ->
+  Lmdb.cursor_last cursor >>= fun () ->
+  Lmdb.cursor_get cursor >>= fun (k, v) ->
+  Printf.printf "%s %s\n"
+    (Bigstring.to_string k) (Bigstring.to_string v) ;
+  Lmdb.cursor_prev cursor >>= fun () ->
+  Lmdb.cursor_get cursor >>= fun (k, v) ->
+  Printf.printf "%s %s\n"
+    (Bigstring.to_string k) (Bigstring.to_string v) ;
+  Lmdb.cursor_close cursor ;
+  Lmdb.abort_txn txn ;
+  Lmdb.create_rw_txn t >>= fun txn ->
+  Lmdb.opencursor txn db >>= fun cursor ->
+  Lmdb.cursor_first cursor >>= fun () ->
+  let rec inner_del a i =
+    if i > 49 then a else
+      match Lmdb.cursor_get cursor with
+      | Error KeyNotFound -> Ok ()
+      | Error e -> Error e
+      | Ok (k, v) ->
+        let k_string = Bigstring.to_string k in
+        Printf.printf "%s %s\n" k_string (Bigstring.to_string v) ;
+        inner_del (del txn db k_string) (succ i)
+  in
+  inner_del (Ok ()) 0 >>= fun () ->
+  Lmdb.cursor_first cursor >>= fun () ->
+  let rec inner_get a i =
+    if i > 32 then a else
+      match cursor_get cursor with
+      | Error KeyNotFound -> Ok ()
+      | Error e -> Error e
+      | Ok (k, v) ->
+        Printf.printf "%s %s\n"
+          (Bigstring.to_string k) (Bigstring.to_string v) ;
+        inner_get (Ok ()) (succ i)
+  in
+  inner_get (Ok ()) 0 >>= fun () ->
+  Lmdb.cursor_close cursor ;
+  Lmdb.commit_txn txn >>= fun () ->
+  Lmdb.create_rw_txn t >>= fun txn ->
+  Lmdb.opencursor txn db >>= fun cursor ->
+  Lmdb.cursor_first cursor >>= fun () ->
+  let rec inner_get a i =
+    if i > 32 then a else
+      match cursor_get cursor with
+      | Error KeyNotFound -> Ok ()
+      | Error e -> Error e
+      | Ok (k, v) ->
+        Printf.printf "%s %s\n"
+          (Bigstring.to_string k) (Bigstring.to_string v) ;
+        inner_get (Ok ()) (succ i)
+  in
+  inner_get (Ok ()) 0 >>= fun () ->
+  Lmdb.cursor_close cursor ;
+  Lmdb.abort_txn txn ;
+  Lmdb.closedir t ;
+  Ok ()
+
 let fail_on_error f () =
   match f () with
   | Ok _ -> ()
@@ -170,9 +286,11 @@ let basic = [
   "cursors_del4", `Quick, fail_on_error cursors_del4 ;
   "fold", `Quick, fail_on_error fold ;
   "consistency", `Quick, fail_on_error consistency ;
+  "mtest", `Quick, fail_on_error mtest ;
 ]
 
 let () =
+  Random.self_init () ;
   Alcotest.run "lmdb" [
     "basic", basic ;
   ]

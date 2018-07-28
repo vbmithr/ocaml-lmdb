@@ -202,8 +202,13 @@ val cursor_get : _ cursor -> (buffer * buffer, error) result
 val cursor_fold_left :
   f:('a -> (buffer * buffer) -> ('a, error) result) ->
   init:'a -> _ cursor -> ('a, error) result
+val cursor_fold_right :
+  f:((buffer * buffer) -> 'a -> ('a, error) result) ->
+  _ cursor -> init:'a -> ('a, error) result
 
 val cursor_iter :
+  f:(buffer * buffer -> (unit, error) result) -> _ cursor -> (unit, error) result
+val cursor_rev_iter :
   f:(buffer * buffer -> (unit, error) result) -> _ cursor -> (unit, error) result
 
 val with_cursor :

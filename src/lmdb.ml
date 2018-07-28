@@ -594,8 +594,24 @@ let cursor_fold_left ~f ~init cursor =
   in
   inner init
 
+let cursor_fold_right ~f cursor ~init =
+  let rec inner a =
+    match cursor_get cursor with
+    | Error KeyNotFound -> Ok a
+    | Error err -> Error err
+    | Ok kv ->
+      f kv a >>= fun a ->
+      match cursor_prev cursor with
+      | Error KeyNotFound -> Ok a
+      | Error err -> Error err
+      | Ok () -> inner a
+  in
+  inner init
+
 let cursor_iter ~f cursor =
   cursor_fold_left ~init:() ~f:(fun () kv -> f kv) cursor
+let cursor_rev_iter ~f cursor =
+  cursor_fold_right ~init:() ~f:(fun kv () -> f kv) cursor
 
 external cursor_put :
   rawcursor -> string -> buffer -> int -> int = "stub_mdb_cursor_put" [@@noalloc]

@@ -9,7 +9,7 @@ let assert_error err = function
   | Error e -> if e <> err then invalid_arg "assert_error"
 
 let assert_equal_ba expected ba =
-  assert (expected = Cstruct.(to_string (of_bigarray ba)))
+  assert (expected = Bigstring.to_string ba)
 
 let version () =
   let { major ; minor ; patch } = version () in
@@ -143,7 +143,7 @@ let fold () =
 let consistency () =
   cleanup () ;
   opendir "/tmp" 0o644 >>= fun env ->
-  let v = Cstruct.(to_bigarray (of_string "bleh")) in
+  let v = Bigstring.of_string "bleh" in
   with_rw_db env ~f:begin fun txn db ->
     put txn db "bleh" v
   end >>= fun () ->

@@ -2,7 +2,7 @@
 
 (executable
  ((name test)
-  (libraries (cstruct rresult lmdb alcotest))))
+  (libraries (bigstring rresult lmdb alcotest))))
 
 (alias
  ((name    runtest-lmdb)
